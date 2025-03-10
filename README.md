@@ -19,6 +19,8 @@ It enables Claude to access your Indian stock portfolio holdings, analyze stock 
 - **Alpha Vantage Rate Limiting**: Handles free tier API limitations with automatic rate limiting
 - **Modular Architecture**: Clean, maintainable code structure with separation of concerns
 - **Environment Configuration**: Uses .env for easy configuration
+- **LLM-Optimized Data**: Automatically limits and simplifies data responses to be easily processed by Claude
+- **Segmented Portfolio Analysis**: Processes large portfolios in smaller segments to prevent timeouts
 
 ## Installation
 
@@ -127,8 +129,14 @@ Claude Desktop uses a configuration file to connect to MCP servers. You'll need 
 
 Once configured, you can ask Claude:
 
+- "Can you provide a summary of my portfolio?"
+- "Analyze segment 1 of my portfolio"
+- "Analyze the next segment of my portfolio with segment_size=8"
+- "Analyze segment 3 of my portfolio with detailed metrics"
+- "What are the stocks in segment 2 of my portfolio?" 
+- "Which sectors are most represented in my portfolio?"
 - "Can you provide recommendations on my Indian stock portfolio?"
-- "Analyze my current NSE holdings and suggest improvements"
+- "Analyze the banking stocks in my portfolio"
 - "What market trends should I be aware of in the Indian market this quarter?"
 - "Which stocks in my portfolio should I consider selling?"
 - "What new NSE stocks would complement my current portfolio?"
@@ -172,6 +180,32 @@ If the tools aren't appearing in Claude despite successful server startup:
 3. **Tool schema issues**: Make sure all tools have proper schema definitions
 4. **Claude Desktop version**: Keep Claude Desktop updated to the latest version
 5. **Server name mismatch**: Server name in code must match configuration file
+6. **Large data responses**: If Claude struggles processing large datasets, use segmented analysis:
+   - First get a portfolio summary with `get_portfolio_summary`
+   - Then analyze one segment at a time with `portfolio_analysis` using the segment parameter
+   - Use smaller segment sizes (3-5 stocks) for detailed analysis
+
+### Handling Large Portfolios
+
+For large portfolios (20+ stocks), the server implements a segmented approach:
+
+1. **Get Portfolio Summary**:
+   - Use `get_portfolio_summary` to see an overview of your portfolio
+   - This shows total stocks, sectors, and recommended segmentation
+
+2. **Analyze in Segments**:
+   - Use `portfolio_analysis` with the `segment` parameter
+   - Start with segment 1, then progress through each segment
+   - Example: "Analyze segment 1 of my portfolio", then "Analyze segment 2..."
+
+3. **Control Segment Size**:
+   - Default segment size is 5 stocks
+   - Use `segment_size` parameter to adjust (1-10 stocks per segment)
+   - Example: "Analyze segment 1 with segment_size=3 for detailed analysis"
+
+4. **Request Levels of Detail**:
+   - Use `include_details=false` for quick overview (default)
+   - Use `include_details=true` for comprehensive metrics and insights
 
 ## Testing
 
@@ -293,7 +327,21 @@ The server provides the following MCP tools, organized by category:
 
 ### Portfolio Analysis
 - **Get Portfolio Holdings**: Retrieve current Indian stock portfolio with basic information
-- **Analyze Portfolio**: Analyze portfolio holdings, including latest earnings, metrics, and provide recommendations
+  - Parameters:
+    - `limit`: Maximum number of holdings to return (default: 10, max: 50)
+    - `summary`: Return simplified stock data (default: true)
+- **Get Portfolio Summary**: Get a high-level overview of the portfolio 
+  - Returns:
+    - Total stocks count
+    - Sector breakdown
+    - Segmentation guide
+    - Analysis recommendations
+- **Analyze Portfolio**: Analyze portfolio holdings with metrics and recommendations
+  - Parameters:
+    - `limit`: Maximum stocks to analyze (default: 10, max: 30)
+    - `include_details`: Include comprehensive metrics (default: false)
+    - `segment`: Which segment of stocks to analyze (default: 1)
+    - `segment_size`: Number of stocks per segment (default: 5, max: 10)
 
 ### Stock Recommendations
 - **Get Stock Recommendations**: Get recommendations for Indian stocks to add based on financial metrics
@@ -323,6 +371,34 @@ The server maintains a knowledge graph in MongoDB (collection: `stock_knowledge_
 - Indian market-specific trends and patterns
 
 This provides Claude with persistent memory about your Indian stock portfolio and stocks of interest.
+
+## Data Optimization for Claude
+
+This server implements several strategies to optimize data for Claude's consumption:
+
+1. **Automatic Data Limiting**: 
+   - Default limits on query results to prevent overwhelming Claude with too much information
+   - Portfolio holdings limited to 10 stocks by default (configurable up to 50)
+   - Recommendations limited to 5 stocks by default
+
+2. **Data Simplification**:
+   - Portfolio holdings simplified to essential fields only (symbol, quantity, average price)
+   - Full details available when needed for analysis but hidden from direct display
+
+3. **Parameter Controls**:
+   - Tools expose parameters to allow Claude to request more or less data as needed
+   - Ability to toggle between summary and detailed views
+
+4. **Segmented Processing**:
+   - Portfolio analysis can be performed in segments to prevent large responses
+   - Each segment processes a subset of stocks (default: 5 stocks per segment)
+   - Allows Claude to analyze large portfolios without hitting connection timeouts
+
+5. **Intelligent Internal Handling**:
+   - Analysis functions use complete data internally while presenting simplified results
+   - Market trend recommendations filter out stocks already in portfolio
+
+These optimizations ensure Claude can process your stock data efficiently without being overwhelmed by excessive information.
 
 ## Alpha Vantage Free Tier Support
 

@@ -59,9 +59,12 @@ async def connect_to_mongodb() -> Optional[AsyncIOMotorDatabase]:
         logger.info(f"Connecting to MongoDB at {MONGODB_URI}, database: {MONGODB_DB_NAME}")
         _client = AsyncIOMotorClient(
             MONGODB_URI, 
-            serverSelectionTimeoutMS=5000,  # 5 seconds timeout
-            connectTimeoutMS=10000,  # 10 seconds connect timeout
-            socketTimeoutMS=45000  # 45 seconds socket timeout
+            serverSelectionTimeoutMS=10000,     # 10 seconds timeout for server selection (was 5000)
+            connectTimeoutMS=10000,             # 10 seconds connect timeout
+            socketTimeoutMS=60000,              # 60 seconds socket timeout (was 45000)
+            maxIdleTimeMS=30000,                # 30 seconds max idle time
+            waitQueueTimeoutMS=10000,           # 10 seconds wait queue timeout
+            retryWrites=True                    # Enable retry for write operations
         )
         
         # Test connection
@@ -114,12 +117,13 @@ def handle_mongo_object(obj: Any) -> Any:
         return obj.isoformat()
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
-async def get_portfolio_holdings(limit: int = 50) -> List[Dict[str, Any]]:
+async def get_portfolio_holdings(limit: int = 10, summary: bool = False) -> List[Dict[str, Any]]:
     """
     Get portfolio holdings from the database.
     
     Args:
-        limit: Maximum number of holdings to return
+        limit: Maximum number of holdings to return (default: 10)
+        summary: If True, returns a simplified view with fewer fields
         
     Returns:
         List of portfolio holdings
@@ -144,6 +148,20 @@ async def get_portfolio_holdings(limit: int = 50) -> List[Dict[str, Any]]:
             logger.warning("No portfolio holdings found in database")
             return []
         
+        # Simplify the response if summary mode is requested
+        if summary:
+            simplified_holdings = []
+            for holding in holdings:
+                simplified_holdings.append({
+                    "symbol": holding["symbol"],
+                    "quantity": holding["quantity"],
+                    "average_price": holding["average_price"]
+                })
+            logger.info(f"Returning {len(simplified_holdings)} simplified portfolio holdings")
+            return simplified_holdings
+        
+        # Return the full holdings data (limited to requested count)
+        logger.info(f"Returning {len(holdings)} portfolio holdings")
         return holdings
         
     except Exception as e:

@@ -78,8 +78,9 @@ async def handle_read_resource(uri: AnyUrl) -> str:
     resource_type = uri.host
     db = await connect_to_mongodb()
     
-    if not db:
-        return json.dumps({"error": "Failed to connect to database"})
+    if db is None:
+        logger.error("Cannot read resource: database connection failed")
+        return None
     
     if resource_type == "portfolio":
         holdings = await db[HOLDINGS_COLLECTION].find({}).to_list(length=50)

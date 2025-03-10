@@ -27,6 +27,7 @@ It enables Claude to access your Indian stock portfolio holdings, analyze stock 
 - Python 3.9+
 - MongoDB running on localhost:27017 with database "stock_data"
 - Alpha Vantage API key (free tier supported, get one at https://www.alphavantage.co/support/#api-key)
+- Claude Desktop app (available at https://claude.ai/download)
 
 ### Setup
 
@@ -69,13 +70,58 @@ python server.py
 
 ### Configure Claude Desktop App
 
-1. Open Claude Desktop App settings
-2. Go to Model Context Protocol settings
-3. Add a new server with the following configuration:
-   - Name: Indian Stock Analysis
-   - Command: `python -m stock_mcp_server.server`
-   - Working Directory: Path to the stock_mcp_server directory
-   - Environment Variables: `ALPHA_VANTAGE_API_KEY=your_api_key_here` 
+Claude Desktop uses a configuration file to connect to MCP servers. You'll need to create or edit this file to include your stock analysis server.
+
+1. Create or edit the configuration file at:
+   - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+   - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+
+2. Add the stock analysis MCP server configuration:
+
+```json
+{
+  "mcpServers": {
+    "stock-analysis-mcp": {
+      "command": "/path/to/your/python",
+      "args": [
+        "/path/to/stock_mcp_server/server.py"
+      ],
+      "cwd": "/path/to/stock_mcp_server",
+      "env": {
+        "ALPHA_VANTAGE_API_KEY": "your_api_key_here",
+        "MONGODB_URI": "mongodb://localhost:27017",
+        "MONGODB_DB_NAME": "stock_data",
+        "MONGODB_HOLDINGS_COLLECTION": "holdings",
+        "MONGODB_FINANCIALS_COLLECTION": "detailed_financials",
+        "MONGODB_KNOWLEDGE_GRAPH_COLLECTION": "stock_knowledge_graph",
+        "ALPHA_VANTAGE_BASE_URL": "https://www.alphavantage.co/query",
+        "ALPHA_VANTAGE_RATE_LIMIT_MINUTE": "5",
+        "ALPHA_VANTAGE_RATE_LIMIT_DAY": "500",
+        "ALPHA_VANTAGE_DEFAULT_EXCHANGE": "NSE",
+        "MCP_SERVER_NAME": "stock-analysis-mcp",
+        "MCP_SERVER_VERSION": "0.1.0",
+        "LOG_LEVEL": "INFO",
+        "CACHE_ENABLED": "True",
+        "CACHE_TTL": "3600"
+      }
+    }
+  }
+}
+```
+
+**Important Notes:**
+- Use the full path to your Python executable (e.g., `/usr/bin/python3` or `C:\Python39\python.exe`)
+- The server key `stock-analysis-mcp` must use hyphens, not underscores
+- The `MCP_SERVER_NAME` in env must match the server key
+- Make sure all paths are absolute paths
+
+3. Start or restart Claude Desktop
+
+4. Verify the server connection:
+   - Open Claude Desktop
+   - The tools icon (hammer) should appear in the interface
+   - Start a new conversation (important - new tools may not appear in existing conversations)
+   - Try asking about your stock portfolio
 
 ### Example Prompts
 
@@ -91,6 +137,42 @@ Once configured, you can ask Claude:
 - "What are the technical indicators for TCS stock?"
 - "Search for HDFC related stocks in the Indian market"
 
+## Troubleshooting
+
+### MCP Tools Not Appearing
+
+If the tools aren't appearing in Claude despite successful server startup:
+
+1. **Check your logs**:
+   ```bash
+   tail -f ~/Library/Logs/Claude/mcp-server-stock-analysis-mcp.log
+   ```
+
+2. **Verify server naming**:
+   - Ensure the server key in `claude_desktop_config.json` uses hyphens (`stock-analysis-mcp`)
+   - Make sure the `MCP_SERVER_NAME` environment variable matches this name
+
+3. **Start a new conversation** in Claude after making changes
+
+4. **Enable developer mode** in Claude's settings
+
+5. **Check paths**: Make sure all paths in the configuration are absolute and correct
+
+6. **Full Python path**: Use the full path to your Python executable (e.g., run `which python` to find it)
+
+7. **Check Claude app log**: 
+   ```bash
+   tail -f ~/Library/Logs/Claude/app.log
+   ```
+
+### Common Issues
+
+1. **Python not found**: Ensure the Python path in the configuration is correct
+2. **MongoDB connection issues**: Check that MongoDB is running on the configured URI
+3. **Tool schema issues**: Make sure all tools have proper schema definitions
+4. **Claude Desktop version**: Keep Claude Desktop updated to the latest version
+5. **Server name mismatch**: Server name in code must match configuration file
+
 ## Testing
 
 This repository includes a comprehensive test suite for validating the functionality of the MCP server.
@@ -99,8 +181,17 @@ This repository includes a comprehensive test suite for validating the functiona
 
 - `test_mcp_server.py`: A comprehensive test script that validates all endpoints and tools in the MCP server.
 - `test_client.py`: A simple client for testing MCP server endpoints.
+- `test_server_startup.sh`: Script to test the server startup process
 
 ### Running the Tests
+
+#### Quick Startup Test
+
+To verify the server can start properly:
+
+```bash
+./test_server_startup.sh
+```
 
 #### Comprehensive Test Script
 
@@ -155,10 +246,6 @@ If tests fail, check the following:
 
 4. **Network Issues**: The Alpha Vantage tests require internet connectivity.
 
-### Custom Tests
-
-You can use the test script as a template for creating custom tests for specific functionality. Each test is implemented as an async function and can be added to the `run_all_tests` function.
-
 ### Exit Codes
 
 - `0`: All tests passed
@@ -181,7 +268,6 @@ When working with the Indian stock market, keep in mind:
 The project follows a modular architecture for better maintainability and separation of concerns:
 
 ```
-
 ├── server.py           # Main entry point
 ├── src/                # Source code
 │   ├── __init__.py     # Package initialization
@@ -203,15 +289,28 @@ The project follows a modular architecture for better maintainability and separa
 
 ## Tools
 
-- **get_portfolio_holdings**: Retrieve your current Indian stock portfolio
-- **portfolio_analysis**: Analyze your Indian stock portfolio and store insights in knowledge graph
-- **get_stock_recommendations**: Get recommendations for Indian stocks to add to portfolio
-- **get_removal_recommendations**: Identify Indian stocks that should be removed from portfolio
-- **get_market_trend_recommendations**: Find must-buy stocks based on current Indian market trends
-- **query_knowledge_graph**: Retrieve stored analyses from the Indian stock knowledge graph
-- **get_alpha_vantage_data**: Access Indian market data from Alpha Vantage with free tier support
-- **get_technical_analysis**: Get technical indicators (SMA, RSI) for an Indian stock
-- **search_stock_symbol**: Search for Indian stock symbols by name or keywords
+The server provides the following MCP tools, organized by category:
+
+### Portfolio Analysis
+- **Get Portfolio Holdings**: Retrieve current Indian stock portfolio with basic information
+- **Analyze Portfolio**: Analyze portfolio holdings, including latest earnings, metrics, and provide recommendations
+
+### Stock Recommendations
+- **Get Stock Recommendations**: Get recommendations for Indian stocks to add based on financial metrics
+- **Get Removal Recommendations**: Identify Indian stocks that should be removed from portfolio
+
+### Market Trends
+- **Get Market Trend Recommendations**: Find must-buy Indian stocks based on current market trends
+
+### Knowledge Graph
+- **Query Knowledge Graph**: Query the Indian stock knowledge graph for historical analysis and insights
+
+### Market Data
+- **Get Alpha Vantage Data**: Access Alpha Vantage API data for Indian stock market with free tier limitations 
+- **Search Stock Symbol**: Search for Indian stock symbols by name or keywords
+
+### Technical Analysis
+- **Get Technical Analysis**: Get technical analysis indicators for an Indian stock (SMA, RSI)
 
 ## Knowledge Graph
 
@@ -258,7 +357,7 @@ The server uses the following environment variables (defined in `.env`):
 - `ALPHA_VANTAGE_DEFAULT_EXCHANGE`: Default exchange for Indian stocks (default: NSE)
 
 ### MCP Server Configuration
-- `MCP_SERVER_NAME`: Server name (default: stock_analysis_mcp)
+- `MCP_SERVER_NAME`: Server name (default: stock-analysis-mcp)
 - `MCP_SERVER_VERSION`: Server version (default: 0.1.0)
 
 ### Logging Configuration

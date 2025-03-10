@@ -61,7 +61,8 @@ async def handle_get_prompt(
         ValueError: If the prompt name is not supported
     """
     db = await connect_to_mongodb()
-    if not db:
+    if db is None:
+        logger.error("Cannot execute prompt: database connection failed")
         return types.GetPromptResult(
             description="Error connecting to database",
             messages=[

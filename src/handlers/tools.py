@@ -206,135 +206,135 @@ async def handle_call_tool(
     
     try:
         db = await connect_to_mongodb()
-        if not db:
-            return [types.TextContent(text=json.dumps({"error": "Failed to connect to database"}, indent=2))]
+        if db is None:
+            # Return a properly formatted error message that follows MCP protocol
+            return [types.TextContent(
+                text=json.dumps({"error": "Failed to connect to MongoDB database"}, indent=2),
+                type="text"
+            )]
         
         # Portfolio Holdings
         if name == "get_portfolio_holdings":
-            holdings_data = await get_portfolio_holdings()
-            
-            # Transform data to be LLM-friendly
-            simplified_holdings = []
-            for holding in holdings_data:
-                simplified_holdings.append({
-                    "symbol": holding.get("symbol", ""),
-                    "company_name": holding.get("company_name", ""),
-                    "quantity": holding.get("quantity", 0),
-                    "average_price": holding.get("average_price", 0),
-                    "asset_type": holding.get("asset_type", "stock"),
-                    "purchase_date": holding.get("purchase_date")
-                })
-            
-            return [types.TextContent(text=json.dumps(simplified_holdings, default=handle_mongo_object, indent=2))]
-            
-        # Portfolio Analysis
-        elif name == "portfolio_analysis":
-            # 1. Get portfolio holdings
-            holdings = await get_portfolio_holdings()
-            
-            # 2. For each holding, get detailed financials
-            analysis_results = []
-            for holding in holdings:
-                symbol = holding.get("symbol", "")
+            try:
+                holdings_data = await get_portfolio_holdings()
                 
-                # Get most recent financial data
-                financials = await get_detailed_financials(symbol)
-                
-                if financials:
-                    # Find the most recent quarter from financial metrics
-                    latest_metrics = None
-                    if financials.get("financial_metrics") and len(financials["financial_metrics"]) > 0:
-                        # Sort by quarter if available
-                        metrics_list = sorted(
-                            financials["financial_metrics"],
-                            key=lambda x: x.get("quarter", ""),
-                            reverse=True
-                        )
-                        latest_metrics = metrics_list[0] if metrics_list else None
-                    
-                    # Create condensed analysis
-                    analysis = {
-                        "symbol": symbol,
+                # Transform data to be LLM-friendly
+                simplified_holdings = []
+                for holding in holdings_data:
+                    simplified_holdings.append({
+                        "symbol": holding.get("symbol", ""),
                         "company_name": holding.get("company_name", ""),
                         "quantity": holding.get("quantity", 0),
                         "average_price": holding.get("average_price", 0),
-                        "latest_quarter": latest_metrics.get("quarter", "Unknown") if latest_metrics else "Unknown",
-                        "metrics": {
-                            "pe_ratio": latest_metrics.get("ttm_pe", "N/A") if latest_metrics else "N/A",
-                            "revenue_growth": latest_metrics.get("revenue_growth", "N/A") if latest_metrics else "N/A",
-                            "profit_growth": latest_metrics.get("net_profit_growth", "N/A") if latest_metrics else "N/A",
-                            "piotroski_score": latest_metrics.get("piotroski_score", "N/A") if latest_metrics else "N/A",
-                            "market_cap": latest_metrics.get("market_cap", "N/A") if latest_metrics else "N/A",
-                            "book_value": latest_metrics.get("book_value", "N/A") if latest_metrics else "N/A"
-                        },
-                        "strengths": latest_metrics.get("strengths", "") if latest_metrics else "",
-                        "weaknesses": latest_metrics.get("weaknesses", "") if latest_metrics else "",
-                        "technicals": latest_metrics.get("technicals_trend", "") if latest_metrics else "",
-                        "fundamental_insights": latest_metrics.get("fundamental_insights", "") if latest_metrics else ""
-                    }
+                        "asset_type": holding.get("asset_type", "stock"),
+                        "purchase_date": holding.get("purchase_date")
+                    })
+                
+                # Properly format the response with type
+                return [types.TextContent(
+                    text=json.dumps(simplified_holdings, default=handle_mongo_object, indent=2),
+                    type="text"
+                )]
+            except Exception as e:
+                logger.error(f"Error fetching portfolio holdings: {e}")
+                return [types.TextContent(
+                    text=json.dumps({"error": f"Error fetching portfolio holdings: {str(e)}"}, indent=2),
+                    type="text"
+                )]
+            
+        # Portfolio Analysis
+        elif name == "portfolio_analysis":
+            try:
+                # 1. Get portfolio holdings
+                holdings = await get_portfolio_holdings()
+                
+                # 2. For each holding, get detailed financials
+                analysis_results = []
+                for holding in holdings:
+                    symbol = holding.get("symbol", "")
                     
-                    analysis_results.append(analysis)
+                    # Get most recent financial data
+                    financials = await get_detailed_financials(symbol)
                     
-                    # Store analysis in knowledge graph for future reference
-                    knowledge_entry = {
-                        "symbol": symbol,
-                        "company_name": holding.get("company_name", ""),
-                        "analysis_date": datetime.now(),
-                        "latest_quarter": latest_metrics.get("quarter", "Unknown") if latest_metrics else "Unknown",
-                        "metrics": analysis["metrics"],
-                        "strengths": analysis["strengths"],
-                        "weaknesses": analysis["weaknesses"],
-                        "technicals": analysis["technicals"],
-                        "fundamental_insights": analysis["fundamental_insights"],
-                        "portfolio": {
+                    if financials:
+                        # Find the most recent quarter from financial metrics
+                        latest_metrics = None
+                        if financials.get("financial_metrics") and len(financials["financial_metrics"]) > 0:
+                            # Sort by quarter if available
+                            metrics_list = sorted(
+                                financials["financial_metrics"],
+                                key=lambda x: x.get("quarter", ""),
+                                reverse=True
+                            )
+                            latest_metrics = metrics_list[0] if metrics_list else None
+                        
+                        # Create condensed analysis
+                        analysis = {
+                            "symbol": symbol,
+                            "company_name": holding.get("company_name", ""),
                             "quantity": holding.get("quantity", 0),
                             "average_price": holding.get("average_price", 0),
-                            "in_portfolio": True
+                            "latest_quarter": latest_metrics.get("quarter", "Unknown") if latest_metrics else "Unknown",
+                            "metrics": {
+                                "pe_ratio": latest_metrics.get("ttm_pe", "N/A") if latest_metrics else "N/A",
+                                "revenue_growth": latest_metrics.get("revenue_growth", "N/A") if latest_metrics else "N/A",
+                                "profit_growth": latest_metrics.get("net_profit_growth", "N/A") if latest_metrics else "N/A",
+                                "piotroski_score": latest_metrics.get("piotroski_score", "N/A") if latest_metrics else "N/A",
+                                "market_cap": latest_metrics.get("market_cap", "N/A") if latest_metrics else "N/A",
+                                "book_value": latest_metrics.get("book_value", "N/A") if latest_metrics else "N/A"
+                            },
+                            "strengths": latest_metrics.get("strengths", "") if latest_metrics else "",
+                            "weaknesses": latest_metrics.get("weaknesses", "") if latest_metrics else "",
+                            "technicals": latest_metrics.get("technicals_trend", "") if latest_metrics else "",
+                            "fundamental_insights": latest_metrics.get("fundamental_insights", "") if latest_metrics else ""
                         }
+                        
+                        analysis_results.append(analysis)
+                        
+                        # Store analysis in knowledge graph for future reference
+                        knowledge_entry = {
+                            "symbol": symbol,
+                            "company_name": holding.get("company_name", ""),
+                            "analysis_date": datetime.now(),
+                            "latest_quarter": latest_metrics.get("quarter", "Unknown") if latest_metrics else "Unknown",
+                            "analysis": analysis
+                        }
+                        
+                        await update_knowledge_graph(symbol, knowledge_entry)
+                
+                # Add a summary for the portfolio
+                if analysis_results:
+                    portfolio_summary = {
+                        "portfolio_size": len(analysis_results),
+                        "sectors_represented": len(set(h.get("company_name", "").split()[0] for h in holdings)),
+                        "analysis_date": datetime.now().isoformat(),
+                        "holdings": analysis_results
                     }
-                    
-                    # Add Alpha Vantage API data if available
-                    alpha_vantage_data = await get_stock_data(symbol)
-                    if alpha_vantage_data:
-                        knowledge_entry["alpha_vantage"] = alpha_vantage_data
-                    
-                    # Update or insert knowledge graph entry
-                    await update_knowledge_graph(symbol, knowledge_entry)
-            
-            return [types.TextContent(text=json.dumps(analysis_results, default=handle_mongo_object, indent=2))]
-            
+                    return [types.TextContent(text=json.dumps(portfolio_summary, default=handle_mongo_object, indent=2), type="text")]
+                else:
+                    return [types.TextContent(text=json.dumps({"message": "No holdings found in portfolio"}, indent=2), type="text")]
+            except Exception as e:
+                logger.error(f"Error analyzing portfolio: {e}")
+                return [types.TextContent(
+                    text=json.dumps({"error": f"Error analyzing portfolio: {str(e)}"}, indent=2),
+                    type="text"
+                )]
+        
         # Stock Recommendations
         elif name == "get_stock_recommendations":
-            criteria = arguments.get("criteria")
-            
-            # Get portfolio symbols to exclude them from recommendations
-            holdings = await get_portfolio_holdings()
-            exclude_symbols = [h.get("symbol", "") for h in holdings]
-            
-            # Get recommendations
-            recommendations = await get_stock_recommendations(exclude_symbols, criteria)
-            
-            # Store recommendations in knowledge graph
-            for recommendation in recommendations:
-                symbol = recommendation.get("symbol", "")
-                if symbol:
-                    knowledge_entry = {
-                        "symbol": symbol,
-                        "company_name": recommendation.get("company_name", ""),
-                        "analysis_date": datetime.now(),
-                        "metrics": recommendation.get("metrics", {}),
-                        "strengths": recommendation.get("strengths", ""),
-                        "weaknesses": recommendation.get("weaknesses", ""),
-                        "technicals": recommendation.get("technicals", ""),
-                        "fundamental_insights": recommendation.get("fundamental_insights", ""),
-                        "portfolio": {
-                            "in_portfolio": False,
-                            "recommendation": "Consider Adding"
-                        }
-                    }
-                    await update_knowledge_graph(symbol, knowledge_entry)
-            
-            return [types.TextContent(text=json.dumps(recommendations, default=handle_mongo_object, indent=2))]
+            try:
+                criteria = arguments.get("criteria", "growth")
+                recommendations = await get_stock_recommendations(criteria)
+                return [types.TextContent(
+                    text=json.dumps(recommendations, default=handle_mongo_object, indent=2),
+                    type="text"
+                )]
+            except Exception as e:
+                logger.error(f"Error getting stock recommendations: {e}")
+                return [types.TextContent(
+                    text=json.dumps({"error": f"Error getting stock recommendations: {str(e)}"}, indent=2),
+                    type="text"
+                )]
             
         # Portfolio Removal Recommendations
         elif name == "get_removal_recommendations":
@@ -393,7 +393,7 @@ async def handle_call_tool(
                             "analysis_date": datetime.now()
                         })
             
-            return [types.TextContent(text=json.dumps(removal_candidates, default=handle_mongo_object, indent=2))]
+            return [types.TextContent(text=json.dumps(removal_candidates, default=handle_mongo_object, indent=2), type="text")]
             
         # Market Trend Recommendations
         elif name == "get_market_trend_recommendations":
@@ -429,7 +429,7 @@ async def handle_call_tool(
                     }
                     await update_knowledge_graph(symbol, knowledge_entry)
             
-            return [types.TextContent(text=json.dumps(trending_stocks, default=handle_mongo_object, indent=2))]
+            return [types.TextContent(text=json.dumps(trending_stocks, default=handle_mongo_object, indent=2), type="text")]
             
         # Knowledge Graph Query
         elif name == "query_knowledge_graph":
@@ -440,7 +440,7 @@ async def handle_call_tool(
             entries = await query_knowledge_graph(symbol, criteria)
             
             if symbol and not entries:
-                return [types.TextContent(text=json.dumps({"message": f"No knowledge graph data found for {symbol}"}, indent=2))]
+                return [types.TextContent(text=json.dumps({"message": f"No knowledge graph data found for {symbol}"}, indent=2), type="text")]
             
             # Format for LLM (simplified)
             simplified_knowledge = []
@@ -457,13 +457,13 @@ async def handle_call_tool(
                 }
                 simplified_knowledge.append(simplified)
             
-            return [types.TextContent(text=json.dumps(simplified_knowledge, default=handle_mongo_object, indent=2))]
+            return [types.TextContent(text=json.dumps(simplified_knowledge, default=handle_mongo_object, indent=2), type="text")]
             
         # Alpha Vantage Data
         elif name == "get_alpha_vantage_data":
             symbol = arguments.get("symbol")
             if not symbol:
-                return [types.TextContent(text=json.dumps({"error": "Missing required parameter: symbol"}, indent=2))]
+                return [types.TextContent(text=json.dumps({"error": "Missing required parameter: symbol"}, indent=2), type="text")]
             
             function = arguments.get("function", "GLOBAL_QUOTE")
             
@@ -476,7 +476,7 @@ async def handle_call_tool(
             # Handle different functions
             if function == "GLOBAL_QUOTE":
                 data = await get_stock_data(symbol)
-                return [types.TextContent(text=f"{rate_limit_notice}\n\n{json.dumps(data, indent=2)}")]
+                return [types.TextContent(text=f"{rate_limit_notice}\n\n{json.dumps(data, indent=2)}", type="text")]
             elif function in ["TIME_SERIES_DAILY", "OVERVIEW", "SYMBOL_SEARCH"]:
                 from ..utils.alpha_vantage import fetch_alpha_vantage_data
                 
@@ -487,17 +487,17 @@ async def handle_call_tool(
                     data = await fetch_alpha_vantage_data(function, symbol)
                     
                 if data:
-                    return [types.TextContent(text=f"{rate_limit_notice}\n\n{json.dumps(data, indent=2)}")]
+                    return [types.TextContent(text=f"{rate_limit_notice}\n\n{json.dumps(data, indent=2)}", type="text")]
                 else:
-                    return [types.TextContent(text=json.dumps({"error": "Failed to fetch data. Rate limit may have been exceeded."}, indent=2))]
+                    return [types.TextContent(text=json.dumps({"error": "Failed to fetch data. Rate limit may have been exceeded."}, indent=2), type="text")]
             else:
-                return [types.TextContent(text=json.dumps({"error": f"Function '{function}' not supported in free tier or invalid"}, indent=2))]
+                return [types.TextContent(text=json.dumps({"error": f"Function '{function}' not supported in free tier or invalid"}, indent=2), type="text")]
                 
         # Technical Analysis
         elif name == "get_technical_analysis":
             symbol = arguments.get("symbol")
             if not symbol:
-                return [types.TextContent(text=json.dumps({"error": "Missing required parameter: symbol"}, indent=2))]
+                return [types.TextContent(text=json.dumps({"error": "Missing required parameter: symbol"}, indent=2), type="text")]
                 
             # Get technical analysis
             analysis = await get_technical_analysis(symbol)
@@ -511,21 +511,31 @@ async def handle_call_tool(
             }
             await update_knowledge_graph(symbol, knowledge_entry)
             
-            return [types.TextContent(text=json.dumps(analysis, indent=2))]
+            return [types.TextContent(text=json.dumps(analysis, indent=2), type="text")]
             
         # Symbol Search
         elif name == "search_stock_symbol":
             keywords = arguments.get("keywords")
             if not keywords:
-                return [types.TextContent(text=json.dumps({"error": "Missing required parameter: keywords"}, indent=2))]
+                return [types.TextContent(text=json.dumps({"error": "Missing required parameter: keywords"}, indent=2), type="text")]
                 
             # Search for symbols
             results = await search_stock_symbol(keywords)
-            return [types.TextContent(text=json.dumps(results, indent=2))]
+            return [types.TextContent(text=json.dumps(results, indent=2), type="text")]
             
         else:
-            raise ValueError(f"Unknown tool: {name}")
+            # Unsupported tool
+            error_message = f"Unsupported tool: {name}"
+            logger.error(error_message)
+            return [types.TextContent(
+                text=json.dumps({"error": error_message}, indent=2),
+                type="text"
+            )]
             
     except Exception as e:
-        logger.error(f"Error executing tool {name}: {e}")
-        return [types.TextContent(text=json.dumps({"error": str(e)}, indent=2))] 
+        error_message = f"Error executing tool {name}: {str(e)}"
+        logger.error(error_message)
+        return [types.TextContent(
+            text=json.dumps({"error": error_message}, indent=2),
+            type="text"
+        )] 

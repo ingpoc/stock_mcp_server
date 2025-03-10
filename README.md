@@ -430,6 +430,29 @@ The server provides the following MCP tools, organized by category:
 
 ### Technical Analysis
 - **Get Technical Analysis**: Get technical analysis indicators for an Indian stock (SMA, RSI)
+  - Parameters:
+    - `symbol`: Stock symbol to analyze (e.g., "NSE:RELIANCE")
+  - Notes:
+    - This tool requires multiple API calls to Alpha Vantage
+    - May be rate limited if several analysis requests are made in quick succession
+
+- **Get Optimized Technical Analysis**: Smart technical analysis that avoids rate limits
+  - Parameters:
+    - `symbol`: Stock symbol to analyze (e.g., "NSE:RELIANCE")
+    - `indicators`: Comma-separated list of indicators to analyze (e.g., "SMA,RSI")
+  - Notes:
+    - Performs preflight checks to ensure API calls are available
+    - Only makes necessary API calls for requested indicators
+    - Provides educational content when rate limited
+    - More efficient use of the 5 calls per minute limit
+
+### API Management
+- **Get Alpha Vantage API Status**: Check current status of API calls and rate limits
+  - Notes:
+    - Shows available API calls remaining in current minute window
+    - Displays recent API call history
+    - Provides recommendations on when to make calls
+    - Helps Claude manage the 5 calls per minute limitation efficiently
 
 ## Knowledge Graph
 
@@ -530,3 +553,45 @@ The server uses the following environment variables (defined in `.env`):
 ## License
 
 [MIT License](LICENSE) 
+
+## Alpha Vantage API Management
+
+This server includes sophisticated management of Alpha Vantage API calls to stay within free tier limits:
+
+### Rate Limit Tracking
+- Maintains a global counter of API calls made in each minute window
+- Automatically detects and handles rate limit responses from Alpha Vantage
+- Provides status information through the `get_alpha_vantage_status` tool
+
+### Smart Call Management
+- **Preflight Checks**: Before making API calls, tools check if they'll exceed rate limits
+- **Cost-aware Processing**: Each API function has an assigned "cost" to track its impact
+- **Graceful Degradation**: When rate limits are reached, tools provide static data or educational content
+- **Targeted Calls**: Technical analysis can be configured to retrieve only specific indicators
+
+### Fallback Mechanisms
+- When rate limited, the system provides alternative content:
+  - Static market data for trending stocks
+  - Educational content about technical indicators
+  - Historical data when available
+  - Clear messaging about when to try again
+
+### Example Usage
+
+Here's how Claude should use the API efficiently:
+
+1. **Check API Status First**:
+   - "Let me check the Alpha Vantage API status before proceeding"
+   - This helps plan which calls to make within the 5-call limit
+
+2. **Use Optimized Tools**:
+   - "I'll use optimized technical analysis to get just the SMA indicator"
+   - This makes only the necessary API calls for the requested information
+
+3. **Batch Similar Requests**:
+   - "Let me collect all the stock symbols first, then query them together"
+   - This helps avoid making redundant or unnecessary API calls
+
+4. **Use Static Data When Appropriate**:
+   - "Since we're rate limited, I'll use static trend data for now"
+   - This provides value even when API limits are reached

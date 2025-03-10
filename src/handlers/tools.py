@@ -22,7 +22,10 @@ from ..utils.alpha_vantage import (
     get_trending_stocks,
     get_technical_analysis,
     get_india_trending_stocks,
-    search_stock_symbol
+    search_stock_symbol,
+    get_alpha_vantage_status,
+    preflight_check,
+    get_static_trending_stocks
 )
 
 # Setup logging
@@ -225,6 +228,38 @@ async def handle_list_tools() -> List[types.Tool]:
             category="Market Data",
             displayName="Search Stock Symbol"
         ),
+        types.Tool(
+            name="get_alpha_vantage_status",
+            description="Get current status of Alpha Vantage API including available calls and rate limits",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False
+            },
+            category="API Management",
+            displayName="Get Alpha Vantage API Status"
+        ),
+        types.Tool(
+            name="get_optimized_technical_analysis",
+            description="Get technical analysis for a stock using minimal API calls, with preflight check and fallbacks",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "symbol": {
+                        "type": "string",
+                        "description": "Indian stock symbol (e.g., 'RELIANCE' or 'NSE:RELIANCE')"
+                    },
+                    "indicators": {
+                        "type": "string",
+                        "description": "Comma-separated list of indicators to analyze (e.g., 'SMA,RSI'). Default is all."
+                    }
+                },
+                "required": ["symbol"],
+                "additionalProperties": False
+            },
+            category="Technical Analysis",
+            displayName="Get Optimized Technical Analysis"
+        ),
     ]
 
 async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> List[types.TextContent | types.ImageContent | types.EmbeddedResource]:
@@ -241,7 +276,7 @@ async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> List[types.T
     logger.info(f"Tool call: {name} with arguments {arguments}")
     
     # Get db connection
-        db = await connect_to_mongodb()
+    db = await connect_to_mongodb()
     
     # Check if the database connection is successful
     if db is None:
@@ -253,7 +288,7 @@ async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> List[types.T
         )]
     
     # Get Portfolio Holdings
-        if name == "get_portfolio_holdings":
+    if name == "get_portfolio_holdings":
         try:
             limit = arguments.get("limit", 10)
             summary = arguments.get("summary", True)
@@ -346,8 +381,8 @@ async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> List[types.T
                 type="text"
             )]
             
-        # Portfolio Analysis
-        elif name == "portfolio_analysis":
+    # Portfolio Analysis
+    elif name == "portfolio_analysis":
         try:
             # Parse parameters with lower limits to reduce response size
             limit = 10
@@ -587,8 +622,8 @@ async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> List[types.T
                 type="text"
             )]
             
-        # Stock Recommendations
-        elif name == "get_stock_recommendations":
+    # Stock Recommendations
+    elif name == "get_stock_recommendations":
         try:
             # Get parameters with sensible defaults
             criteria = arguments.get("criteria", "growth")
@@ -656,8 +691,8 @@ async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> List[types.T
                 type="text"
             )]
             
-        # Portfolio Removal Recommendations
-        elif name == "get_removal_recommendations":
+    # Portfolio Removal Recommendations
+    elif name == "get_removal_recommendations":
         try:
             # Parse parameters with limits
             limit = int(arguments.get("limit", 5))  # Default to just 5 stocks
@@ -788,8 +823,8 @@ async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> List[types.T
                 type="text"
             )]
             
-        # Market Trend Recommendations
-        elif name == "get_market_trend_recommendations":
+    # Market Trend Recommendations
+    elif name == "get_market_trend_recommendations":
         try:
             # Get current portfolio symbols
             holdings = await get_portfolio_holdings(limit=30, summary=True)
@@ -867,39 +902,43 @@ async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> List[types.T
                 type="text"
             )]
             
-        # Knowledge Graph Query
-        elif name == "query_knowledge_graph":
-            symbol = arguments.get("symbol")
-            criteria = arguments.get("criteria")
-            
-            # Query knowledge graph
-            entries = await query_knowledge_graph(symbol, criteria)
-            
-            if symbol and not entries:
+    # Knowledge Graph Query
+    elif name == "query_knowledge_graph":
+        symbol = arguments.get("symbol")
+        criteria = arguments.get("criteria")
+        
+        # Query knowledge graph
+        entries = await query_knowledge_graph(symbol, criteria)
+        
+        if symbol and not entries:
             return [types.TextContent(text=json.dumps({"message": f"No knowledge graph data found for {symbol}"}, indent=2), type="text")]
-            
-            # Format for LLM (simplified)
-            simplified_knowledge = []
-            for entry in entries:
-                simplified = {
-                    "symbol": entry.get("symbol", ""),
-                    "company_name": entry.get("company_name", ""),
-                    "analysis_date": entry.get("analysis_date", ""),
-                    "latest_quarter": entry.get("latest_quarter", ""),
-                    "metrics": entry.get("metrics", {}),
-                    "portfolio": entry.get("portfolio", {}),
-                    "technicals": entry.get("technicals", ""),
-                    "fundamental_insights": entry.get("fundamental_insights", "")
-                }
-                simplified_knowledge.append(simplified)
-            
+        
+        # Format for LLM (simplified)
+        simplified_knowledge = []
+        for entry in entries:
+            simplified = {
+                "symbol": entry.get("symbol", ""),
+                "company_name": entry.get("company_name", ""),
+                "analysis_date": entry.get("analysis_date", ""),
+                "latest_quarter": entry.get("latest_quarter", ""),
+                "metrics": entry.get("metrics", {}),
+                "portfolio": entry.get("portfolio", {}),
+                "technicals": entry.get("technicals", ""),
+                "fundamental_insights": entry.get("fundamental_insights", "")
+            }
+            simplified_knowledge.append(simplified)
+        
         return [types.TextContent(text=json.dumps(simplified_knowledge, default=handle_mongo_object, indent=2), type="text")]
             
-        # Alpha Vantage Data
-        elif name == "get_alpha_vantage_data":
+    # Alpha Vantage Data
+    elif name == "get_alpha_vantage_data":
+        try:
             symbol = arguments.get("symbol")
             if not symbol:
-            return [types.TextContent(text=json.dumps({"error": "Missing required parameter: symbol"}, indent=2), type="text")]
+                return [types.TextContent(
+                    text=json.dumps({"error": "Missing required parameter: symbol"}, indent=2),
+                    type="text"
+                )]
             
             function = arguments.get("function", "GLOBAL_QUOTE")
             
@@ -912,54 +951,435 @@ async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> List[types.T
             # Handle different functions
             if function == "GLOBAL_QUOTE":
                 data = await get_stock_data(symbol)
-            return [types.TextContent(text=f"{rate_limit_notice}\n\n{json.dumps(data, indent=2)}", type="text")]
+                
+                # Check for error in response
+                if data and isinstance(data, dict) and "error" in data:
+                    error_message = data["error"]
+                    return [types.TextContent(
+                        text=json.dumps({
+                            "error": error_message,
+                            "message": "Alpha Vantage API rate limited. Please try again in a few minutes.",
+                            "symbol": symbol,
+                            "rate_limit_info": "The free tier allows only 5 calls per minute and 500 per day."
+                        }, indent=2),
+                        type="text"
+                    )]
+                
+                return [types.TextContent(text=f"{rate_limit_notice}\n\n{json.dumps(data, indent=2)}", type="text")]
+            
             elif function in ["TIME_SERIES_DAILY", "OVERVIEW", "SYMBOL_SEARCH"]:
+                # Import within function to avoid circular imports
                 from ..utils.alpha_vantage import fetch_alpha_vantage_data
                 
                 # For SYMBOL_SEARCH, handle search parameters differently
                 if function == "SYMBOL_SEARCH":
-                    data = await fetch_alpha_vantage_data(function, "", keywords=symbol)
+                    keywords = arguments.get("keywords", "")
+                    data = await fetch_alpha_vantage_data(function, "", keywords=keywords)
                 else:
                     data = await fetch_alpha_vantage_data(function, symbol)
-                    
-                if data:
-                return [types.TextContent(text=f"{rate_limit_notice}\n\n{json.dumps(data, indent=2)}", type="text")]
-            else:
-                return [types.TextContent(text=json.dumps({"error": "Failed to fetch data. Rate limit may have been exceeded."}, indent=2), type="text")]
-        else:
-            return [types.TextContent(text=json.dumps({"error": f"Function '{function}' not supported in free tier or invalid"}, indent=2), type="text")]
                 
-        # Technical Analysis
-        elif name == "get_technical_analysis":
+                # Check for error in response
+                if data and isinstance(data, dict) and "error" in data:
+                    error_message = data["error"]
+                    return [types.TextContent(
+                        text=json.dumps({
+                            "error": error_message,
+                            "message": "Alpha Vantage API rate limited. Please try again in a few minutes.",
+                            "function": function,
+                            "symbol": symbol,
+                            "rate_limit_info": "The free tier allows only 5 calls per minute and 500 per day."
+                        }, indent=2),
+                        type="text"
+                    )]
+                
+                if data:
+                    return [types.TextContent(text=f"{rate_limit_notice}\n\n{json.dumps(data, indent=2)}", type="text")]
+                else:
+                    return [types.TextContent(
+                        text=json.dumps({
+                            "error": "Failed to fetch data. Rate limit may have been exceeded.",
+                            "message": "Alpha Vantage API rate limited. Please try again in a few minutes.",
+                            "function": function,
+                            "symbol": symbol,
+                            "rate_limit_info": "The free tier allows only 5 calls per minute and 500 per day."
+                        }, indent=2),
+                        type="text"
+                    )]
+            else:
+                return [types.TextContent(
+                    text=json.dumps({
+                        "error": f"Function '{function}' not supported in free tier or invalid",
+                        "supported_functions": ["GLOBAL_QUOTE", "TIME_SERIES_DAILY", "OVERVIEW", "SYMBOL_SEARCH"],
+                        "message": "Please use one of the supported functions."
+                    }, indent=2),
+                    type="text"
+                )]
+        except Exception as e:
+            logger.error(f"Error in Alpha Vantage tool: {e}")
+            return [types.TextContent(
+                text=json.dumps({
+                    "error": f"Error processing Alpha Vantage request: {str(e)}",
+                    "message": "Please try again with a different symbol or function."
+                }, indent=2),
+                type="text"
+            )]
+            
+    # Alpha Vantage API Status
+    elif name == "get_alpha_vantage_status":
+        try:
+            status = await get_alpha_vantage_status()
+            
+            # Enhance with user-friendly descriptions
+            readable_status = {
+                "available_api_calls": status["available_calls"],
+                "calls_made_this_minute": status["calls_made_this_minute"],
+                "is_rate_limited": status["is_rate_limited"],
+                "seconds_until_reset": status["seconds_to_next_reset"],
+                "status_summary": "Ready" if status["available_calls"] > 0 and not status["is_rate_limited"] else "Rate Limited",
+                "recent_calls": status["recent_calls"]
+            }
+            
+            if status["is_rate_limited"]:
+                readable_status["rate_limit_reset_in"] = f"{status.get('rate_limit_reset_in_seconds', 60)} seconds"
+                readable_status["recommendation"] = "Wait for rate limit to reset before making new calls"
+            else:
+                readable_status["recommendation"] = f"You can make {status['available_calls']} more calls in this minute window"
+            
+            if status["available_calls"] == 0 and not status["is_rate_limited"]:
+                readable_status["recommendation"] = f"Wait {status['seconds_to_next_reset']} seconds for minute window to reset"
+            
+            # Add analysis of call costs
+            readable_status["call_costs"] = {
+                "simple_stock_quote": "1 API call",
+                "technical_analysis": "2 API calls (SMA + RSI)",
+                "stock_data_comprehensive": "3 API calls (overview + quote + daily data)",
+                "trending_stocks": "Multiple API calls (up to 5)"
+            }
+            
+            return [types.TextContent(
+                text=json.dumps(readable_status, indent=2),
+                type="text"
+            )]
+        except Exception as e:
+            logger.error(f"Error getting Alpha Vantage API status: {e}")
+            return [types.TextContent(
+                text=json.dumps({"error": f"Failed to get API status: {str(e)}"}, indent=2),
+                type="text"
+            )]
+
+    # Optimized Technical Analysis
+    elif name == "get_optimized_technical_analysis":
+        try:
             symbol = arguments.get("symbol")
             if not symbol:
-            return [types.TextContent(text=json.dumps({"error": "Missing required parameter: symbol"}, indent=2), type="text")]
-                
-            # Get technical analysis
-            analysis = await get_technical_analysis(symbol)
+                return [types.TextContent(
+                    text=json.dumps({"error": "Missing required parameter: symbol"}, indent=2),
+                    type="text"
+                )]
             
-            # Store in knowledge graph
-            knowledge_entry = {
-                "symbol": analysis.get("symbol", symbol),
-                "analysis_date": datetime.now(),
-                "technicals": analysis.get("indicators", {}),
-                "source": "Alpha Vantage API (Technical Analysis)"
+            indicators_param = arguments.get("indicators", "SMA,RSI")
+            requested_indicators = [i.strip().upper() for i in indicators_param.split(",")]
+            
+            # First perform a preflight check to see if API calls are possible
+            check = await preflight_check("get_technical_analysis", symbol)
+            
+            if not check["can_proceed"]:
+                # Not enough API calls available, provide informative message
+                wait_message = f"API calls limited. Please wait {check['wait_seconds']} seconds before trying again."
+                
+                # Return a simplified response with static/historical data if available
+                response = {
+                    "symbol": symbol,
+                    "status": "limited",
+                    "message": wait_message,
+                    "available_calls": check["status"]["available_calls"],
+                    "wait_seconds": check["wait_seconds"],
+                    "is_static_data": True,
+                    "indicators": {}
+                }
+                
+                # Add static indicators data or educational content
+                if "SMA" in requested_indicators:
+                    response["indicators"]["SMA"] = {
+                        "description": "Simple Moving Average (SMA) is the average stock price over a specific period, typically 20-200 days.",
+                        "interpretation": "When price crosses above SMA, it's considered bullish; crossing below is bearish.",
+                        "typical_values": {
+                            "short_term": "20 days",
+                            "medium_term": "50 days",
+                            "long_term": "200 days"
+                        }
+                    }
+                
+                if "RSI" in requested_indicators:
+                    response["indicators"]["RSI"] = {
+                        "description": "Relative Strength Index (RSI) measures momentum on a scale of 0-100.",
+                        "interpretation": "Values above 70 suggest overbought conditions, while values below 30 suggest oversold conditions.",
+                        "typical_values": {
+                            "overbought": "> 70",
+                            "neutral": "30-70",
+                            "oversold": "< 30"
+                        }
+                    }
+                
+                return [types.TextContent(
+                    text=json.dumps(response, indent=2),
+                    type="text"
+                )]
+            
+            # We can proceed with API calls
+            logger.info(f"Proceeding with optimized technical analysis for {symbol}")
+            
+            # Initialize the response
+            response = {
+                "symbol": symbol,
+                "status": "success",
+                "available_calls_remaining": check["status"]["available_calls"] - check["cost"],
+                "indicators": {},
+                "is_live_data": True
             }
-            await update_knowledge_graph(symbol, knowledge_entry)
             
-        return [types.TextContent(text=json.dumps(analysis, indent=2), type="text")]
-            
-        # Symbol Search
-        elif name == "search_stock_symbol":
-            keywords = arguments.get("keywords")
-            if not keywords:
-            return [types.TextContent(text=json.dumps({"error": "Missing required parameter: keywords"}, indent=2), type="text")]
+            # Prioritize which indicators to fetch based on request
+            # Only make as many calls as we need for the requested indicators
+            if "SMA" in requested_indicators:
+                # Get SMA data
+                from ..utils.alpha_vantage import fetch_alpha_vantage_data
+                sma_data = await fetch_alpha_vantage_data(
+                    "SMA", 
+                    symbol, 
+                    time_period=20, 
+                    series_type="close"
+                )
                 
-            # Search for symbols
-            results = await search_stock_symbol(keywords)
+                if "error" not in sma_data and "Technical Analysis: SMA" in sma_data:
+                    # Get the most recent SMA value
+                    dates = sorted(sma_data["Technical Analysis: SMA"].keys(), reverse=True)
+                    if dates:
+                        latest_date = dates[0]
+                        sma_value = float(sma_data["Technical Analysis: SMA"][latest_date]["SMA"])
+                        response["indicators"]["SMA"] = {
+                            "value": sma_value,
+                            "time_period": 20,
+                            "date": latest_date,
+                            "explanation": f"20-day Simple Moving Average: {sma_value:.2f}",
+                            "interpretation": "This indicator shows the average price over the last 20 trading days."
+                        }
+                elif "error" in sma_data:
+                    response["indicators"]["SMA"] = {
+                        "error": sma_data["error"],
+                        "status": "failed"
+                    }
+            
+            # Check if we're still ok to make more calls after SMA
+            status_after_sma = await get_alpha_vantage_status()
+            can_continue = status_after_sma["available_calls"] > 0 and not status_after_sma["is_rate_limited"]
+            
+            if "RSI" in requested_indicators and can_continue:
+                # Get RSI data
+                from ..utils.alpha_vantage import fetch_alpha_vantage_data
+                rsi_data = await fetch_alpha_vantage_data(
+                    "RSI", 
+                    symbol, 
+                    time_period=14, 
+                    series_type="close"
+                )
+                
+                if "error" not in rsi_data and "Technical Analysis: RSI" in rsi_data:
+                    # Get the most recent RSI value
+                    dates = sorted(rsi_data["Technical Analysis: RSI"].keys(), reverse=True)
+                    if dates:
+                        latest_date = dates[0]
+                        rsi_value = float(rsi_data["Technical Analysis: RSI"][latest_date]["RSI"])
+                        rsi_trend = "Overbought (consider selling)" if rsi_value > 70 else "Oversold (consider buying)" if rsi_value < 30 else "Neutral"
+                        response["indicators"]["RSI"] = {
+                            "value": rsi_value,
+                            "trend": rsi_trend,
+                            "time_period": 14,
+                            "date": latest_date,
+                            "explanation": f"14-day Relative Strength Index: {rsi_value:.2f}",
+                            "interpretation": "RSI measures momentum. Values above 70 suggest overbought conditions, while values below 30 suggest oversold conditions."
+                        }
+                elif "error" in rsi_data:
+                    response["indicators"]["RSI"] = {
+                        "error": rsi_data["error"],
+                        "status": "failed"
+                    }
+            elif "RSI" in requested_indicators:
+                # We can't make more calls but RSI was requested
+                response["indicators"]["RSI"] = {
+                    "status": "skipped",
+                    "reason": "Not enough API calls available",
+                    "message": "RSI calculation requires an additional API call which would exceed limits."
+                }
+            
+            # Update API status in the response
+            final_status = await get_alpha_vantage_status()
+            response["api_status"] = {
+                "available_calls": final_status["available_calls"],
+                "calls_made_this_minute": final_status["calls_made_this_minute"],
+                "seconds_to_reset": final_status["seconds_to_next_reset"]
+            }
+            
+            # Add a recommendation based on available indicators
+            if "SMA" in response["indicators"] and "RSI" in response["indicators"]:
+                if "value" in response["indicators"]["SMA"] and "value" in response["indicators"]["RSI"]:
+                    sma = response["indicators"]["SMA"]["value"]
+                    rsi = response["indicators"]["RSI"]["value"]
+                    
+                    if rsi > 70:
+                        response["recommendation"] = "Overbought - Consider reducing position"
+                    elif rsi < 30:
+                        response["recommendation"] = "Oversold - Potential buying opportunity"
+                    else:
+                        response["recommendation"] = "Neutral - Monitor for changes in trend"
+            
+            return [types.TextContent(
+                text=json.dumps(response, indent=2),
+                type="text"
+            )]
+        except Exception as e:
+            logger.error(f"Error in optimized technical analysis: {e}")
+            return [types.TextContent(
+                text=json.dumps({
+                    "error": f"Error processing technical analysis request: {str(e)}",
+                    "message": "Please try again with a different symbol or fewer indicators."
+                }, indent=2),
+                type="text"
+            )]
+
+    # Technical Analysis
+    elif name == "get_technical_analysis":
+        try:
+            symbol = arguments.get("symbol")
+            if not symbol:
+                return [types.TextContent(
+                    text=json.dumps({"error": "Missing required parameter: symbol"}, indent=2),
+                    type="text"
+                )]
+            
+            # For backward compatibility, use our optimized technical analysis internally
+            # But keep the old format for the response
+            
+            # First perform a preflight check
+            check = await preflight_check("get_technical_analysis", symbol)
+            
+            if not check["can_proceed"]:
+                # Not enough API calls available
+                return [types.TextContent(
+                    text=json.dumps({
+                        "error": "Alpha Vantage API rate limited",
+                        "message": f"Please wait {check['wait_seconds']} seconds before trying again.",
+                        "symbol": symbol,
+                        "indicator_note": "Technical indicators require multiple API calls, which quickly hit rate limits.",
+                        "suggestion": "Try again later or use a simpler endpoint like GLOBAL_QUOTE."
+                    }, indent=2),
+                    type="text"
+                )]
+            
+            # We can proceed with the original implementation but with our optimized approach
+            analysis = {
+                "symbol": symbol,
+                "indicators": {}
+            }
+            
+            # Try to get SMA
+            from ..utils.alpha_vantage import fetch_alpha_vantage_data
+            sma_data = await fetch_alpha_vantage_data(
+                "SMA", 
+                symbol, 
+                time_period=20, 
+                series_type="close"
+            )
+            
+            if "error" not in sma_data and "Technical Analysis: SMA" in sma_data:
+                # Get the most recent SMA value
+                dates = sorted(sma_data["Technical Analysis: SMA"].keys(), reverse=True)
+                if dates:
+                    latest_date = dates[0]
+                    analysis["indicators"]["SMA"] = {
+                        "value": sma_data["Technical Analysis: SMA"][latest_date]["SMA"],
+                        "time_period": 20,
+                        "date": latest_date
+                    }
+            
+            # Check if we can still make more calls
+            status_after_sma = await get_alpha_vantage_status()
+            can_continue = status_after_sma["available_calls"] > 0 and not status_after_sma["is_rate_limited"]
+            
+            if can_continue:
+                # Try to get RSI
+                rsi_data = await fetch_alpha_vantage_data(
+                    "RSI", 
+                    symbol, 
+                    time_period=14, 
+                    series_type="close"
+                )
+                
+                if "error" not in rsi_data and "Technical Analysis: RSI" in rsi_data:
+                    # Get the most recent RSI value
+                    dates = sorted(rsi_data["Technical Analysis: RSI"].keys(), reverse=True)
+                    if dates:
+                        latest_date = dates[0]
+                        analysis["indicators"]["RSI"] = {
+                            "value": rsi_data["Technical Analysis: RSI"][latest_date]["RSI"],
+                            "time_period": 14,
+                            "date": latest_date
+                        }
+            
+            # Add interpretation for backward compatibility
+            interpretation = {}
+            if "SMA" in analysis["indicators"]:
+                sma_value = float(analysis["indicators"]["SMA"]["value"])
+                interpretation["SMA"] = {
+                    "value": sma_value,
+                    "explanation": f"20-day Simple Moving Average: {sma_value:.2f}",
+                    "interpretation": "This indicator shows the average price over the last 20 trading days."
+                }
+            
+            if "RSI" in analysis["indicators"]:
+                rsi_value = float(analysis["indicators"]["RSI"]["value"])
+                rsi_trend = "Overbought (consider selling)" if rsi_value > 70 else "Oversold (consider buying)" if rsi_value < 30 else "Neutral"
+                interpretation["RSI"] = {
+                    "value": rsi_value,
+                    "trend": rsi_trend,
+                    "explanation": f"14-day Relative Strength Index: {rsi_value:.2f}",
+                    "interpretation": "RSI measures momentum. Values above 70 suggest overbought conditions, while values below 30 suggest oversold conditions."
+                }
+            
+            # Add interpretation to the analysis result
+            if interpretation:
+                analysis["interpretation"] = interpretation
+            
+            # Add rate limit notice and API status
+            rate_limit_note = "Note: Technical analysis requires multiple API calls. The free tier of Alpha Vantage is limited to 5 calls per minute."
+            analysis["api_status"] = {
+                "available_calls": await get_alpha_vantage_status()["available_calls"]
+            }
+            
+            return [types.TextContent(
+                text=f"{rate_limit_note}\n\n{json.dumps(analysis, indent=2)}",
+                type="text"
+            )]
+        except Exception as e:
+            logger.error(f"Error in Technical Analysis tool: {e}")
+            return [types.TextContent(
+                text=json.dumps({
+                    "error": f"Error processing technical analysis request: {str(e)}",
+                    "message": "Please try again with a different symbol."
+                }, indent=2),
+                type="text"
+            )]
+
+    # Symbol Search
+    elif name == "search_stock_symbol":
+        keywords = arguments.get("keywords")
+        if not keywords:
+            return [types.TextContent(text=json.dumps({"error": "Missing required parameter: keywords"}, indent=2), type="text")]
+            
+        # Search for symbols
+        results = await search_stock_symbol(keywords)
         return [types.TextContent(text=json.dumps(results, indent=2), type="text")]
             
-        else:
+    else:
         # Unsupported tool
         error_message = f"Unsupported tool: {name}"
         logger.error(error_message)

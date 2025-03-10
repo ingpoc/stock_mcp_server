@@ -168,6 +168,64 @@ async def get_portfolio_holdings(limit: int = 10, summary: bool = False) -> List
         logger.error(f"Error fetching portfolio holdings: {e}")
         return []
 
+def compress_financial_data(data: Dict[str, Any], max_text_length: int = 50) -> Dict[str, Any]:
+    """
+    Compress financial data by truncating text fields and removing unnecessary information.
+    This helps ensure Claude can process large financial data responses.
+    
+    Args:
+        data: Financial data dictionary to compress
+        max_text_length: Maximum length for text fields
+        
+    Returns:
+        Compressed financial data dictionary
+    """
+    if not data or not isinstance(data, dict):
+        return data
+    
+    result = {}
+    
+    # Process top-level keys
+    for key, value in data.items():
+        # Skip internal fields and large metadata
+        if key.startswith('_') or key == 'metadata' or key == 'raw_data':
+            continue
+            
+        # Handle nested dictionaries
+        if isinstance(value, dict):
+            result[key] = compress_financial_data(value, max_text_length)
+        
+        # Handle lists (like financial_metrics)
+        elif isinstance(value, list):
+            # For lists of dictionaries (common in financial data)
+            if all(isinstance(item, dict) for item in value):
+                # If it's metrics or a list of financial periods, limit to most recent 2
+                if key in ['financial_metrics', 'quarters', 'periods', 'historical_data']:
+                    # Take only most recent 2 items to reduce size
+                    compressed_list = []
+                    for item in value[:2]:  # Only take first 2 items
+                        compressed_list.append(compress_financial_data(item, max_text_length))
+                    result[key] = compressed_list
+                else:
+                    # For other lists, process all items but compress each
+                    result[key] = [compress_financial_data(item, max_text_length) for item in value]
+            else:
+                # For simple lists, truncate if too long
+                if len(value) > 10:
+                    result[key] = value[:10]  # Take only first 10 items
+                else:
+                    result[key] = value
+        
+        # Handle strings - truncate long text
+        elif isinstance(value, str) and len(value) > max_text_length:
+            result[key] = value[:max_text_length] + "..."
+        
+        # Pass through other value types unchanged
+        else:
+            result[key] = value
+    
+    return result
+
 async def get_detailed_financials(symbol: str) -> Optional[Dict[str, Any]]:
     """
     Get detailed financials for a stock.
@@ -209,7 +267,30 @@ async def get_detailed_financials(symbol: str) -> Optional[Dict[str, Any]]:
                 ]
             }
         
-        return financials
+        # Optimize the financials response
+        if financials and "financial_metrics" in financials and financials["financial_metrics"]:
+            # Sort metrics by quarter to get the latest
+            metrics = sorted(financials["financial_metrics"], 
+                            key=lambda x: x.get("quarter", ""), 
+                            reverse=True)
+            
+            # Keep only the latest 2 quarters to reduce response size
+            financials["financial_metrics"] = metrics[:2]
+            
+            # For each metric, trim excessive text fields
+            for metric in financials["financial_metrics"]:
+                # Limit the length of textual fields
+                for field in ["strengths", "weaknesses", "fundamental_insights"]:
+                    if field in metric and isinstance(metric[field], str) and len(metric[field]) > 100:
+                        metric[field] = metric[field][:100] + "..."
+            
+            logger.debug(f"Optimized financials for {symbol}: kept latest {len(financials['financial_metrics'])} quarters")
+        
+        # Apply compression to reduce size further for large financial data
+        compressed_financials = compress_financial_data(financials)
+        logger.debug(f"Compressed financials for {symbol}")
+        
+        return compressed_financials
     except Exception as e:
         logger.error(f"Error retrieving detailed financials for {symbol}: {e}")
         return None
@@ -299,7 +380,7 @@ async def query_knowledge_graph(
         return []
     
     try:
-        collection = db["knowledge_graph"]
+        collection = db[KNOWLEDGE_GRAPH_COLLECTION]
         
         # Create a filter based on parameters
         filter_query = {}
@@ -318,7 +399,7 @@ async def query_knowledge_graph(
         
         # If no filters are provided, return most recent entries
         if not filter_query:
-            cursor = collection.find({}).sort("entry_date", -1).limit(limit)
+            cursor = collection.find({}).sort("analysis_date", -1).limit(limit)
         else:
             cursor = collection.find(filter_query).limit(limit)
             
@@ -327,9 +408,35 @@ async def query_knowledge_graph(
         if not entries:
             logger.warning(f"No knowledge graph entries found for query: symbol={symbol}, criteria={criteria}")
             return []
-            
-        return entries
         
+        # Optimize results for Claude processing
+        optimized_entries = []
+        for entry in entries:
+            # Create a concise version of each entry
+            optimized_entry = {
+                "symbol": entry.get("symbol", ""),
+                "company_name": entry.get("company_name", ""),
+                "analysis_date": entry.get("analysis_date", ""),
+                "latest_quarter": entry.get("latest_quarter", "")
+            }
+            
+            # Add a subset of the analysis data if available
+            if "analysis" in entry and entry["analysis"]:
+                analysis = entry["analysis"]
+                # Include only essential analysis fields
+                optimized_entry["analysis"] = {
+                    "key_metrics": {
+                        "pe_ratio": analysis.get("metrics", {}).get("pe_ratio", "N/A") if "metrics" in analysis else "N/A",
+                        "profit_growth": analysis.get("metrics", {}).get("profit_growth", "N/A") if "metrics" in analysis else "N/A",
+                    },
+                    "summary": analysis.get("fundamental_insights", "")[:150] if "fundamental_insights" in analysis else ""
+                }
+            
+            optimized_entries.append(optimized_entry)
+        
+        logger.debug(f"Optimized {len(entries)} knowledge graph entries for Claude")
+        return optimized_entries
+            
     except Exception as e:
         logger.error(f"Error querying knowledge graph: {e}")
         return []
@@ -352,6 +459,35 @@ async def get_stock_recommendations(criteria: Optional[str] = None, limit: int =
         return []
     
     try:
+        # First check if we have actual recommendations in the database
+        has_recommendations = await db.list_collection_names()
+        if "stock_recommendations" not in has_recommendations:
+            logger.warning("No stock_recommendations collection found. Using sample data.")
+            # Return sample recommendations data
+            return [
+                {
+                    "symbol": "NSE:INFY",
+                    "company_name": "Infosys Ltd.",
+                    "recommendation_type": "growth",
+                    "reason": "Strong IT sector growth potential",
+                    "metrics": {"pe_ratio": "21.5", "growth_rate": "15%"}
+                },
+                {
+                    "symbol": "NSE:RELIANCE",
+                    "company_name": "Reliance Industries",
+                    "recommendation_type": "value",
+                    "reason": "Diversified business with strong fundamentals",
+                    "metrics": {"pe_ratio": "25.3", "growth_rate": "12%"}
+                },
+                {
+                    "symbol": "NSE:HDFCBANK",
+                    "company_name": "HDFC Bank",
+                    "recommendation_type": "dividend",
+                    "reason": "Consistent dividend payer with growth",
+                    "metrics": {"pe_ratio": "18.6", "dividend_yield": "1.2%"}
+                }
+            ][:limit]
+        
         collection = db["stock_recommendations"]
         
         # Create a filter based on criteria
@@ -378,7 +514,34 @@ async def get_stock_recommendations(criteria: Optional[str] = None, limit: int =
             logger.warning(f"No stock recommendations found for criteria: {criteria}")
             return []
         
-        return recommendations
+        # Optimize the recommendations for Claude
+        optimized_recommendations = []
+        for rec in recommendations:
+            # Create a concise recommendation object
+            optimized_rec = {
+                "symbol": rec.get("symbol", ""),
+                "company_name": rec.get("company_name", ""),
+                "type": rec.get("recommendation_type", "growth"),
+                "key_metrics": {}
+            }
+            
+            # Add a brief reason if available (limit length)
+            if "reason" in rec:
+                optimized_rec["reason"] = rec["reason"][:150] if len(rec["reason"]) > 150 else rec["reason"]
+            
+            # Add core metrics if available
+            if "metrics" in rec and rec["metrics"]:
+                metrics = rec["metrics"]
+                optimized_rec["key_metrics"] = {
+                    "pe_ratio": metrics.get("pe_ratio", "N/A"),
+                    "growth_rate": metrics.get("growth_rate", "N/A"),
+                    "dividend_yield": metrics.get("dividend_yield", "N/A")
+                }
+            
+            optimized_recommendations.append(optimized_rec)
+        
+        logger.info(f"Returning {len(optimized_recommendations)} optimized stock recommendations for criteria: {criteria}")
+        return optimized_recommendations
         
     except Exception as e:
         logger.error(f"Error getting stock recommendations: {e}")

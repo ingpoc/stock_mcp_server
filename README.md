@@ -200,12 +200,59 @@ For large portfolios (20+ stocks), the server implements a segmented approach:
 
 3. **Control Segment Size**:
    - Default segment size is 5 stocks
-   - Use `segment_size` parameter to adjust (1-10 stocks per segment)
+   - Use `segment_size` parameter to adjust (1-5 stocks per segment)
    - Example: "Analyze segment 1 with segment_size=3 for detailed analysis"
 
 4. **Request Levels of Detail**:
    - Use `include_details=false` for quick overview (default)
    - Use `include_details=true` for comprehensive metrics and insights
+   - When using detailed analysis, segment size is automatically reduced to prevent timeouts
+
+5. **Response Size Management**:
+   - The server automatically monitors response size and simplifies data if needed
+   - Text fields are truncated to prevent overwhelming Claude
+   - Financial metrics are compressed to focus on essential information
+   - If a response would be too large, it's automatically simplified with a notification
+
+### Performance Optimizations
+
+The server includes several optimizations to ensure Claude can process stock data efficiently:
+
+1. **Adaptive Response Sizing**:
+   - Automatic monitoring of response size during processing
+   - Dynamic simplification when responses exceed size thresholds
+   - Truncation of text fields to 50-100 characters maximum
+   - Removal of non-essential data fields
+
+2. **Financial Data Compression**:
+   - Automatic compression of financial data responses
+   - Limiting historical data to the 2 most recent periods
+   - Removal of metadata and internal fields
+   - Prioritization of essential metrics over comprehensive data
+
+3. **Parameter Limits**:
+   - Portfolio analysis: Maximum 15 stocks, 5 per segment (3 for detailed analysis)
+   - Stock recommendations: Maximum 8 recommendations
+   - Removal analysis: Maximum 10 stocks analyzed for removal
+   - Market trends: Maximum 8 trending stocks
+
+4. **Intelligent Segmentation**:
+   - Automatic adjustment of segment size based on analysis type
+   - Smaller segments for detailed analysis to prevent timeouts
+   - Progress tracking during analysis to identify bottlenecks
+
+5. **Response Size Management**:
+   - Real-time monitoring of response size during processing
+   - Automatic simplification when responses exceed size thresholds
+   - Emergency fallback to minimal data when responses would be too large
+   - Detailed logging of response sizes for troubleshooting
+
+6. **Intelligent Internal Handling**:
+   - Analysis functions use complete data internally while presenting simplified results
+   - Market trend recommendations filter out stocks already in portfolio
+   - Financial data compression preserves critical metrics while reducing size
+
+These optimizations ensure Claude can process your stock data efficiently without being overwhelmed by excessive information or experiencing timeouts.
 
 ## Testing
 
@@ -338,17 +385,41 @@ The server provides the following MCP tools, organized by category:
     - Analysis recommendations
 - **Analyze Portfolio**: Analyze portfolio holdings with metrics and recommendations
   - Parameters:
-    - `limit`: Maximum stocks to analyze (default: 10, max: 30)
+    - `limit`: Maximum stocks to analyze (default: 10, max: 15)
     - `include_details`: Include comprehensive metrics (default: false)
     - `segment`: Which segment of stocks to analyze (default: 1)
-    - `segment_size`: Number of stocks per segment (default: 5, max: 10)
+    - `segment_size`: Number of stocks per segment (default: 5, max: 5)
+  - Notes:
+    - For detailed analysis, segment size is automatically reduced to 3
+    - Response size is monitored and simplified if needed
+    - Text fields are truncated to 50 characters maximum
 
 ### Stock Recommendations
 - **Get Stock Recommendations**: Get recommendations for Indian stocks to add based on financial metrics
+  - Parameters:
+    - `criteria`: Type of recommendations to get (e.g., "growth", "value", "dividend") (default: "growth")
+    - `limit`: Maximum number of recommendations to return (default: 5, max: 8)
+  - Notes:
+    - Responses are optimized for Claude with text field truncation
+    - Recommendations are filtered to exclude stocks already in portfolio
+    - Response size is monitored and simplified if needed
+
 - **Get Removal Recommendations**: Identify Indian stocks that should be removed from portfolio
+  - Parameters:
+    - `limit`: Maximum number of stocks to analyze (default: 5, max: 10)
+  - Notes:
+    - Automatically analyzes portfolio holdings for removal candidates
+    - Identifies stocks with declining profits, bearish trends, or low fundamental scores
+    - Response size is monitored and simplified if needed
 
 ### Market Trends
 - **Get Market Trend Recommendations**: Find must-buy Indian stocks based on current market trends
+  - Parameters:
+    - `limit`: Maximum number of recommendations to return (default: 5, max: 8)
+  - Notes:
+    - Automatically excludes stocks already in your portfolio
+    - Focuses on stocks with strong momentum and positive technical indicators
+    - Response size is monitored and simplified if needed
 
 ### Knowledge Graph
 - **Query Knowledge Graph**: Query the Indian stock knowledge graph for historical analysis and insights
@@ -380,25 +451,37 @@ This server implements several strategies to optimize data for Claude's consumpt
    - Default limits on query results to prevent overwhelming Claude with too much information
    - Portfolio holdings limited to 10 stocks by default (configurable up to 50)
    - Recommendations limited to 5 stocks by default
+   - Portfolio analysis limited to 15 stocks maximum with 5 stocks per segment
 
 2. **Data Simplification**:
    - Portfolio holdings simplified to essential fields only (symbol, quantity, average price)
    - Full details available when needed for analysis but hidden from direct display
+   - Financial data automatically compressed to focus on essential metrics
+   - Text fields truncated to prevent overwhelming Claude
 
 3. **Parameter Controls**:
    - Tools expose parameters to allow Claude to request more or less data as needed
    - Ability to toggle between summary and detailed views
+   - Control over segment size and which segment to analyze
 
 4. **Segmented Processing**:
    - Portfolio analysis can be performed in segments to prevent large responses
    - Each segment processes a subset of stocks (default: 5 stocks per segment)
    - Allows Claude to analyze large portfolios without hitting connection timeouts
+   - Automatic adjustment of segment size based on analysis type
 
-5. **Intelligent Internal Handling**:
+5. **Response Size Management**:
+   - Real-time monitoring of response size during processing
+   - Automatic simplification when responses exceed size thresholds
+   - Emergency fallback to minimal data when responses would be too large
+   - Detailed logging of response sizes for troubleshooting
+
+6. **Intelligent Internal Handling**:
    - Analysis functions use complete data internally while presenting simplified results
    - Market trend recommendations filter out stocks already in portfolio
+   - Financial data compression preserves critical metrics while reducing size
 
-These optimizations ensure Claude can process your stock data efficiently without being overwhelmed by excessive information.
+These optimizations ensure Claude can process your stock data efficiently without being overwhelmed by excessive information or experiencing timeouts.
 
 ## Alpha Vantage Free Tier Support
 
